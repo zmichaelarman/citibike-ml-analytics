@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Citi Bike data lake - S3 bucket, Glue database, Athena workgroup with a scan limit, least-privilege pipeline role
+
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub citibike-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  GlueDatabase: 
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: citibike
+
+  WorkGroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: citibike
+      RecursiveDeleteOption: true 
+      WorkGroupConfiguration:
+        EnforceWorkGroupConfiguration: true  
+        BytesScannedCutoffPerQuery: 2000000000  
+        ResultConfiguration:
+          OutputLocation: !Sub s3://${DataBucket}/athena-results/
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: citibike-pipeline
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root  
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: citibike-pipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Bucket
+                Effect: Allow
+                Action: [s3:ListBucket, s3:GetBucketLocation]
+                Resource: !GetAtt DataBucket.Arn
+              - Sid: ObjectsReadAndAddOnly  
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:AbortMultipartUpload]
+                Resource: !Sub ${DataBucket.Arn}/*
+              - Sid: Athena
+                Effect: Allow
+                Action: [athena:StartQueryExecution, athena:GetQueryExecution, athena:GetQueryResults,
+                         athena:StopQueryExecution, athena:GetWorkGroup]
+                Resource: !Sub arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${WorkGroup}
+              - Sid: Catalog
+                Effect: Allow
+                Action: [glue:GetDatabase, glue:GetTable, glue:GetTables, glue:CreateTable, glue:UpdateTable,
+                         glue:DeleteTable, glue:GetPartition, glue:GetPartitions, glue:BatchGetPartition,
+                         glue:CreatePartition, glue:BatchCreatePartition]
+                Resource:
+                  - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog
+                  - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/${GlueDatabase}
+                  - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/${GlueDatabase}/*
+
+Outputs:
+  BucketName:
+    Value: !Ref DataBucket
+  PipelineRoleArn:
+    Value: !GetAtt PipelineRole.Arn

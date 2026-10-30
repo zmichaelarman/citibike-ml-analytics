@@ -1,0 +1,9 @@
+duckdb
+pandas
+numpy
+scikit-learn
+matplotlib
+httpx
+holidays
+jupyter
+awswrangler
